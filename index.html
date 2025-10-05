@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cenário DS — Hotspot abre vídeo com áudio (tela ainda menor)</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js"></script>
+
+    <script>
+      /* Mantém telas/painéis por cima e evita z-fighting */
+      AFRAME.registerComponent('always-on-top', {
+        init() {
+          this.el.object3D.traverse(o => {
+            if (o.material) {
+              o.material.depthTest  = false;
+              o.material.depthWrite = false;
+              o.material.transparent = true;
+              o.material.needsUpdate = true;
+            }
+            if (o.renderOrder !== undefined) o.renderOrder = 999;
+          });
+        }
+      });
+
+      /* Clicáveis da cena (não fecha mais ao clicar fora) */
+      AFRAME.registerComponent('video-handler', {
+        schema: { avshift: {type: 'number', default: 0.00} },
+        init: function () {
+          const sceneEl = this.el;
+          const robos   = sceneEl.querySelectorAll('.clickable');
+          let activeVideo = null;
+          let activeAvatarDom = null;
+          let gazeTimer = null;
+          const AVSHIFT = this.data.avshift;
+
+          robos.forEach(robo => {
+            const videoSelector  = robo.getAttribute('data-video');
+            const avatarSelector = robo.getAttribute('data-avatar');
+            const videoEl = sceneEl.querySelector(videoSelector);
+            if (!videoEl) return;
+
+            const show = ()=> showVideo(videoEl, avatarSelector);
+            robo.addEventListener('mouseenter', () => { gazeTimer = setTimeout(show, 2000); });
+            robo.addEventListener('mouseleave', () => clearTimeout(gazeTimer));
+            robo.addEventListener('click', show);
+          });
+
+          function showVideo(videoEl, avatarSelector) {
+            if (activeVideo && activeVideo !== videoEl) {
+              const prevGroup = activeVideo.parentEl;
+              prevGroup.setAttribute('visible', 'false');
+              const prevMain = document.querySelector(activeVideo.getAttribute('src'));
+              prevMain?.pause?.();
+              const prevPanel = prevGroup.querySelector('.avatar-panel');
+              if (prevPanel) prevPanel.setAttribute('visible', 'false');
+              activeAvatarDom?.pause?.();
+            }
+
+            const group = videoEl.parentEl;
+            group.setAttribute('visible', 'true');
+
+            const mainDom = document.querySelector(videoEl.getAttribute('src'));
+            mainDom?.play?.().catch(()=>{});
+
+            const panel = group.querySelector('.avatar-panel');
+            if (panel) panel.setAttribute('visible', 'true');
+
+            activeAvatarDom = avatarSelector ? document.querySelector(avatarSelector) : null;
+            if (activeAvatarDom && mainDom) {
+              try {
+                if (activeAvatarDom.readyState >= 1) {
+                  const t = Math.max(0, mainDom.currentTime + AVSHIFT);
+                  activeAvatarDom.currentTime = t;
+                }
+                activeAvatarDom.play?.().catch(()=>{});
+              } catch(e) {}
+            }
+
+            activeVideo = videoEl;
+          }
+        }
+      });
+
+      /* HOTSPOT de gaze: olha (fuse) => mostra grupo e dá play DESMUTADO */
+      AFRAME.registerComponent('gaze-hotspot', {
+        schema: {
+          group:  {type: 'selector'},   // ex: #screen-robo2
+          main:   {type: 'selector'},   // ex: #src-robo2 (DOM <video>)
+          avatar: {type: 'selector'},   // ex: #src-robo2-avatar (DOM <video>)
+          hideAfter: {type: 'boolean', default: true}
+        },
+        init() {
+          const el = this.el;
+          const {group, main, avatar, hideAfter} = this.data;
+
+          const open = async () => {
+            try {
+              // Desbloqueia o áudio
+              const ctx = el.sceneEl && el.sceneEl.audioListener && el.sceneEl.audioListener.context;
+              if (ctx && ctx.state !== 'running') { await ctx.resume(); }
+
+              if (group) group.setAttribute('visible','true');
+
+              if (main) {
+                main.muted = false;
+                main.volume = 1.0;
+                await main.play();
+              }
+
+              if (avatar && avatar.play) { try { await avatar.play(); } catch(e){} }
+
+              if (hideAfter) el.setAttribute('visible','false');
+            } catch(e) {
+              console.warn('Falha ao iniciar áudio/vídeo:', e);
+            }
+          };
+
+          el.addEventListener('click', open); // a-cursor dispara após fuse-timeout
+        }
+      });
+
+      
+AFRAME.registerComponent('face-user-yaw', {
+  tick: function () {
+    const cam = this.el.sceneEl && this.el.sceneEl.camera;
+    if (!cam) return;
+
+    const obj = this.el.object3D;
+    const objPos = new THREE.Vector3();
+    const camPos = new THREE.Vector3();
+
+    obj.getWorldPosition(objPos);
+    cam.getWorldPosition(camPos);
+
+    const dir = camPos.sub(objPos);          // vetor do objeto até a câmera
+    const yaw = Math.atan2(dir.x, dir.z);    // ângulo Y para “encarar” a câmera
+
+    obj.rotation.set(0, yaw, 0);             // só Y; mantém X/Z = 0 (plano/sem inclinar)
+  }
+});
+
+//Play/Pause, Mute/Unmute, tempo, seek bar clicável e Fechar
+
+AFRAME.registerComponent('yt-controls', {
+  schema: {
+    hotspot: {type:'selector'},      // ex.: #hotspot-robo9
+    below:   {type:'number', default: 0.28} // distância da barra abaixo do vídeo (margem p/ legenda)
+  },
+
+  init() {
+    const FONT = 'https://cdn.aframe.io/fonts/DejaVu-sdf.fnt'; // fonte com bom suporte a símbolos
+    const group = this.el;
+
+    // backplate e vídeos
+    const plate     = group.querySelector('a-plane');
+    const mainAV    = group.querySelector('a-video'); // vídeo principal
+    const avatarAV  = group.querySelector('.avatar-panel a-video');
+
+    // fontes DOM
+    const mainDOM   = mainAV   ? document.querySelector(mainAV.getAttribute('src'))   : null;
+    const avatarDOM = avatarAV ? document.querySelector(avatarAV.getAttribute('src')) : null;
+
+    // dimensões
+    const W = parseFloat((plate && plate.getAttribute('width'))  || 2.8);
+    const H = parseFloat((plate && plate.getAttribute('height')) || 1.6);
+
+    // layout da barra (ABAIXO do vídeo)
+    const barH   = 0.22;
+    const padX   = 0.20;
+    const trackH = 0.03;
+    const gapBelow = this.data.below;                // margem para legenda
+    const tY   = -H/2 - gapBelow - barH/2;           // posição Y abaixo do backplate
+    const zLift = 0.04;                              // levemente à frente
+
+    // container da barra
+    const bar = document.createElement('a-entity');
+    bar.setAttribute('position', `0 ${tY} ${zLift}`);
+    group.appendChild(bar);
+
+    // fundo da barra
+    const bg = document.createElement('a-plane');
+    bg.setAttribute('width',  W);
+    bg.setAttribute('height', barH);
+    bg.setAttribute('material','color:#111; opacity:0.92; transparent:true; side:double');
+    bar.appendChild(bg);
+
+    // trilha de seek (estilo YouTube)
+    const trackW = W - padX*2;
+    const trackY = barH/2 - trackH/2 - 0.02;
+    const track  = document.createElement('a-plane');
+    track.setAttribute('position', `0 ${trackY} 0.001`);
+    track.setAttribute('width',  trackW);
+    track.setAttribute('height', trackH);
+    track.setAttribute('material','color:#666; opacity:0.9; side:double');
+    bar.appendChild(track);
+
+    // progresso
+    const prog = document.createElement('a-plane');
+    prog.setAttribute('position', `${-trackW/2} ${trackY} 0.002`);
+    prog.setAttribute('width',  0.0001);
+    prog.setAttribute('height', trackH);
+    prog.setAttribute('material','color:#f00; opacity:0.95; side:double');
+    bar.appendChild(prog);
+
+    // util p/ botões
+    const makeButton = (x, label) => {
+      const btn = document.createElement('a-entity');
+      btn.setAttribute('position', `${x} ${-barH/2 + 0.065} 0.002`);
+
+      const p = document.createElement('a-plane');
+      p.setAttribute('width', 0.26);
+      p.setAttribute('height',0.22);
+      p.setAttribute('material','color:#222; opacity:0.95; transparent:true; side:double');
+      p.addEventListener('mouseenter', ()=> p.setAttribute('material','color:#333; opacity:1'));
+      p.addEventListener('mouseleave', ()=> p.setAttribute('material','color:#222; opacity:0.95'));
+
+      const t = document.createElement('a-entity');
+      t.setAttribute('text', `value:${label}; font:${FONT}; color:#fff; align:center; baseline:center; width:0.9`);
+      t.setAttribute('position','0 0 0.001');
+
+      btn.appendChild(p); btn.appendChild(t);
+      bar.appendChild(btn);
+      return {btn, t};
+    };
+
+    const leftStart = -W/2 + padX + 0.13;
+    const {btn: playBtn, t: playTxt}  = makeButton(leftStart,            '▶');   // Play/Pause
+    const {btn: muteBtn, t: muteTxt}  = makeButton(leftStart + 0.30,     '🔊'); // Mute/Unmute
+    const {btn: closeBtn, t: xTxt}    = makeButton(W/2 - padX - 0.13,    '✕');  // Fechar
+    xTxt.setAttribute('text', `value:✕; font:${FONT}; color:#fff; align:center; baseline:center; width:0.9`);
+
+    // tempo
+    const timeLabel = document.createElement('a-entity');
+    timeLabel.setAttribute('position', `${leftStart + 0.62} ${-barH/2 + 0.065} 0.002`);
+    timeLabel.setAttribute('text', `value:00:00 / 00:00; font:${FONT}; color:#ddd; align:left; width:1.8; anchor:left`);
+    bar.appendChild(timeLabel);
+
+    // helpers
+    const fmt = t => {
+      if (!isFinite(t)) return '00:00';
+      const m = Math.floor(t/60); const s = Math.floor(t%60);
+      return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    };
+
+    const updateUI = () => {
+      if (!mainDOM) return;
+      const dur = mainDOM.duration || 0, cur = mainDOM.currentTime || 0;
+      timeLabel.setAttribute('text', `value:${fmt(cur)} / ${fmt(dur)}; font:${FONT}; color:#ddd; align:left; width:1.8; anchor:left`);
+      const ratio = dur>0 ? Math.min(1, Math.max(0, cur/dur)) : 0;
+      const w = Math.max(0.0001, trackW*ratio);
+      prog.setAttribute('width', w);
+      prog.setAttribute('position', `${-trackW/2 + w/2} ${trackY} 0.002`);
+
+      // ícones
+      playTxt.setAttribute('text', `value:${mainDOM.paused ? '▶' : '❚❚'}; font:${FONT}; color:#fff; align:center; baseline:center; width:0.9`);
+      muteTxt.setAttribute('text', `value:${mainDOM.muted ? '🔇' : '🔊'}; font:${FONT}; color:#fff; align:center; baseline:center; width:0.9`);
+    };
+
+    // seek
+    track.addEventListener('click', (e)=>{
+      if (!mainDOM || !isFinite(mainDOM.duration)) return;
+      const world = e.detail?.intersection?.point; if (!world) return;
+      const local = new THREE.Vector3(world.x, world.y, world.z);
+      track.object3D.worldToLocal(local);
+      const ratio = THREE.MathUtils.clamp((local.x + trackW/2)/trackW, 0, 1);
+      mainDOM.currentTime = ratio * (mainDOM.duration || 0);
+      updateUI();
+    });
+
+    // play/pause
+    playBtn.addEventListener('click', async ()=>{
+      try {
+        const ctx = group.sceneEl?.audioListener?.context;
+        if (ctx && ctx.state !== 'running') { await ctx.resume(); }
+        if (!mainDOM) return;
+        if (mainDOM.paused) {
+          mainDOM.muted = false;
+          await mainDOM.play();
+          try { await avatarDOM?.play?.(); } catch(e){}
+        } else {
+          mainDOM.pause(); avatarDOM?.pause?.();
+        }
+        updateUI();
+      } catch(e) { console.warn('play/pause', e); }
+    });
+
+    // mute
+    muteBtn.addEventListener('click', ()=>{
+      if (!mainDOM) return;
+      mainDOM.muted = !mainDOM.muted;
+      updateUI();
+    });
+
+    // fechar
+    closeBtn.addEventListener('click', ()=>{
+      mainDOM?.pause?.(); avatarDOM?.pause?.();
+      group.setAttribute('visible','false');
+      if (this.data.hotspot) this.data.hotspot.setAttribute('visible','true');
+    });
+
+    // timers / eventos
+    this._uiTimer = setInterval(updateUI, 200);
+    if (mainDOM) {
+      mainDOM.addEventListener('loadedmetadata', updateUI);
+      mainDOM.addEventListener('timeupdate',     updateUI);
+      mainDOM.addEventListener('play',           updateUI);
+      mainDOM.addEventListener('pause',          updateUI);
+      mainDOM.addEventListener('volumechange',   updateUI);
+    }
+  },
+
+  remove() { if (this._uiTimer) clearInterval(this._uiTimer); }
+});
+
+</script>
+
+
+ 
+ 
+
+
+
+
+    
+  </head>
+
+  <body>
+    <a-scene video-handler="avshift: 0.00">
+      <!-- Fundo 360º -->
+      <a-sky src="Robots/cena2.png" rotation="0 -90 0"></a-sky>
+
+      <!-- ====== ALVOS CLICÁVEIS (mantidos) ====== -->
+      <a-image class="clickable" data-video="#video-robo1" data-avatar="#src-robo1-avatar"
+               src="Robots/LOGISTICA .png"
+               position="-5.2 1.9 6.0" rotation="10 160 0"
+               width="11.0" height="3.3" look-at="#camera"></a-image>
+
+
+      <a-image class="clickable" data-video="#video-robo2" data-avatar="#src-robo2-avatar"
+               src="Robots/Robo Logo Escola.png"
+               position="0.9 1.1 -3.5"
+               width="3" height="2" look-at="#camera"></a-image>
+
+<!-- ====== TELA DS (reduzida proporcionalmente) ====== -->
+<a-entity id="screen-robo2"
+          position="1.350 1.700 0.218"
+          rotation="-0.292 -96.267 0.000"
+          scale="0.80 0.80 0.80"
+          visible="false"
+          always-on-top
+          yt-controls="hotspot: #hotspot-ds; below: 0.02">
+
+  <!-- backplate -->
+  <a-plane width="1.92" height="1.08" color="#000"
+           position="0 0 -0.03"
+           material="side: double"></a-plane>
+
+  <!-- Vídeo principal (16:9) -->
+  <a-video id="video-robo2" src="#src-robo2"
+           width="1.8" height="1.0125" position="0 0 0"
+           material="shader: flat; side: double"></a-video>
+
+  <!-- Avatar à esquerda -->
+  <a-entity class="avatar-panel" visible="true">
+    <a-plane width="0.95" height="1.26" color="#000" opacity="0.65"
+             position="-1.5 0 -0.03" material="side: double"></a-plane>
+    <a-video src="#src-robo2-avatar"
+             width="0.90" height="1.20" position="-1.5 0 0"
+             material="shader: flat; side: double"></a-video>
+  </a-entity>
+</a-entity>
+
+<!-- HOTSPOT DS (escala igual à tela) -->
+<a-entity id="hotspot-ds"
+          position="1.350 1.700 0.218"
+          rotation="-0.292 -96.267 0.000"
+          scale="0.80 0.80 0.80"
+          gaze-hotspot="group: #screen-robo2; main: #src-robo2; avatar: #src-robo2-avatar; hideAfter: true">
+  <a-entity position="0 0 0.03" look-at="#camera">
+    <a-ring radius-inner="0.03" radius-outer="0.05"
+            material="color: #FFD54F; opacity: 0.95; side: double; transparent: true"
+            animation__pulse="property: scale; dir: alternate; from: 1 1 1; to: 1.25 1.25 1; dur: 700; loop: true">
+    </a-ring>
+    <a-sphere radius="0.018" color="#FFD54F"></a-sphere>
+  </a-entity>
+</a-entity>
+
+<!-- Fontes DOM do DS (principal SEM muted) -->
+<video id="src-robo2" crossorigin="anonymous" preload="auto" playsinline webkit-playsinline>
+  <source src="videos/ds.mp4" type="video/mp4">
+</video>
+<video id="src-robo2-avatar" crossorigin="anonymous" preload="auto" playsinline webkit-playsinline muted loop>
+  <source src="videos/0.1_desenvolvedor.mp4" type="video/mp4">
+</video>
+
+
+<!-- ====== TELA ROBO9 (plana, um pouco menor) ====== -->
+<a-entity id="screen-robo9"
+          position="-0.90 1.80 -3"
+          rotation="0 0 0"
+          face-user-yaw
+          visible="false"
+          always-on-top
+          yt-controls="hotspot: #hotspot-robo9;below: 0.00">
+
+
+  <!-- backplate (−12%) -->
+  <a-plane width="2.842" height="1.663" color="#000"
+           position="0 0 -0.03"
+           material="side: double"></a-plane>
+
+  <!-- Vídeo principal 16:9 (−12%) -->
+  <a-video id="video-robo9" src="#src-robo9"
+           width="2.693" height="1.515"
+           position="0 0 0"
+           material="shader: flat; side: double"></a-video>
+
+  <!-- Avatar à esquerda (−12%) e offset compatível -->
+  <a-entity class="avatar-panel" visible="true">
+    <a-plane width="1.454" height="1.939" color="#000" opacity="0.65"
+             position="-2.182 0 -0.03"
+             material="side: double"></a-plane>
+    <a-video src="#src-robo9-avatar"
+             width="1.346" height="1.795"
+             position="-2.182 0 0"
+             material="shader: flat; side: double"></a-video>
+  </a-entity>
+</a-entity>
+
+<!-- ====== HOTSPOT ROBO9 (segue só yaw também) ====== -->
+<a-entity id="hotspot-robo9"
+          position="-0.90 1.80 -3"
+          rotation="0 0 0"
+          face-user-yaw
+          geometry="primitive: plane; width: 4.264; height: 1.945"
+          material="color: #FF8A65; opacity: 0.001; transparent: true"
+          gaze-hotspot="group: #screen-robo9; main: #src-robo9; avatar: #src-robo9-avatar; hideAfter: true">
+  <a-entity position="0 0 0.03">
+    <a-ring radius-inner="0.04" radius-outer="0.07"
+            material="color: #FF8A65; opacity: 0.95; side: double; transparent: true"
+            animation__pulse="property: scale; dir: alternate; from: 1 1 1; to: 1.25 1.25 1; dur: 700; loop: true">
+    </a-ring>
+    <a-sphere radius="0.025" color="#FF8A65"></a-sphere>
+  </a-entity>
+</a-entity>
+
+<!-- Fontes DOM (principal SEM muted; avatar muted/loop) -->
+<video id="src-robo9" crossorigin="anonymous" preload="auto" playsinline webkit-playsinline>
+  <source src="videos/log.mp4" type="video/mp4">
+</video>
+<video id="src-robo9-avatar" crossorigin="anonymous" preload="auto" playsinline webkit-playsinline muted loop>
+  <source src="videos/0.1_log.mp4" type="video/mp4">
+</video>
+
+
+      
+
+    <!-- Robô com celular (imagem) -->
+      <a-image class="clickable" data-video="#video-robo3"
+               src="Robots/Robo com celular.png"
+               position="3.5 0.25 -2.0" rotation="-10 -60 0"
+               width="1.6" height="1.6" look-at="#camera"></a-image>
+
+      <!-- Robô lendo (imagem) -->
+      <a-image class="clickable" data-video="#video-robo4" id="convite-video"
+               src="Robots/Robo lendo sobre a bancada.png"
+               position="25.2 -14.3 -0.7" rotation="0 -30 0"
+               width="10.2" height="10.4" look-at="#camera"></a-image>
+
+<!-- Robô gamer (curvo) — em pé e mais baixo -->
+<a-image class="clickable" data-video="#video-robo4" id="convite-video"
+               src="Robots/Robo gamer.png"
+               position="9.2 -5.1 9.7" rotation="0 -30.0"
+               width="5.2" height="5.4" look-at="#camera"></a-image>
+    
+
+      <!-- Robô LOG Modal (imagem) -->
+      <a-image class="clickable" data-video="#video-robo5"
+               src="Robots/modal.png"
+               position="-73 2.9 6.0" rotation="10 110 0"
+               width="30" height="20" look-at="#camera"></a-image>
+
+      <!-- ROBÔ PROCESSOS (exemplo mantido) -->
+      <a-image class="clickable" data-video="#video-robo6" data-avatar="#src-proc-avatar"
+               src="Robots/Robo processo.png"
+               position="-3.8 -0.7 6.0" rotation="10 160 0"
+               width="4.5" height="3.5" look-at="#camera"></a-image>
+
+
+      <!-- ROBÔ LOGO (exemplo mantido) -->
+      <a-image class="clickable" data-video="#video-robo9" data-avatar="#src-robo9-avatar"
+               src="Robots/Robo Logo Log 2.png"
+               position="-3.9 1.4 -1.3" rotation="10 70 0"
+               width="3.2" height="3" look-at="#camera"></a-image>
+
+      <!-- Robô LOG Paraquedas (imagem) -->
+      <a-image class="clickable" data-video="#video-robo7"
+               src="Robots/Robo Paraquedas.png"
+               position="-0.6 3.2 5.0" rotation="10 160 0"
+               width="4.5" height="2.5" look-at="#camera"></a-image>
+
+      <!-- Robô LOG sobre teclado (imagem) -->
+      <a-image class="clickable" data-video="#video-robo8"
+               src="Robots/Robo Log .png"
+               position="-0.5 0.3 5.0" rotation="10 160 0"
+               width="4.5" height="4" look-at="#camera"></a-image>
+
+      <!-- Narração (se não quiser mistura, remova) -->
+      <a-sound src="#audio" autoplay="true" position="1.2 2.0 -3"></a-sound>
+      <audio id="audio" crossorigin="anonymous">
+        <source src="narracao_robot_desenvolvimento_sistemas_resumida.mp3" type="audio/mp3">
+      </audio>
+
+      <!-- Câmera + cursor (fuse 1.5s) -->
+      <a-camera id="camera" look-controls>
+        <a-cursor fuse="true" fuse-timeout="1500" color="white"></a-cursor>
+      </a-camera>
+    </a-scene>
+  </body>
+</html>
