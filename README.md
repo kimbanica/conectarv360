@@ -176,31 +176,35 @@ conectarv/
 
 Este projeto é de uso **educacional e não comercial**, podendo ser reutilizado e adaptado mediante citação da fonte:
 
-## License
+## Licença
 
-**Code:** MIT License  
+**Código:** Licença MIT  
 Copyright (c) 2025 **Mônica de Souza Oliveira do Nascimento**
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the “Software”), to deal
-in the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-of the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
+Permissão é concedida, gratuitamente, a qualquer pessoa que obtenha uma cópia
+deste software e dos arquivos de documentação associados (“Software”),
+para tratar o Software sem restrições, incluindo, sem limitação, os direitos de
+usar, copiar, modificar, mesclar, publicar, distribuir, sublicenciar e/ou vender
+cópias do Software, e permitir que pessoas a quem o Software é fornecido o façam,
+sujeito às seguintes condições:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+O aviso de copyright acima e este aviso de permissão deverão ser incluídos em
+todas as cópias ou partes substanciais do Software.
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+O SOFTWARE É FORNECIDO “NO ESTADO EM QUE SE ENCONTRA”, SEM QUALQUER TIPO DE
+GARANTIA, EXPRESSA OU IMPLÍCITA, INCLUINDO, MAS NÃO SE LIMITANDO ÀS GARANTIAS
+DE COMERCIALIZAÇÃO, ADEQUAÇÃO A UM DETERMINADO FIM E NÃO VIOLAÇÃO. EM NENHUMA
+HIPÓTESE OS AUTORES OU DETENTORES DOS DIREITOS SERÃO RESPONSÁVEIS POR QUALQUER
+RECLAMAÇÃO, DANO OU OUTRA RESPONSABILIDADE, SEJA EM AÇÃO CONTRATUAL, DELITO OU
+OUTRA, DECORRENTE DE, DE OU EM CONEXÃO COM O SOFTWARE OU O USO OU OUTRAS
+NEGOCIAÇÕES NO SOFTWARE.
 
-**Assets (media & brand):** All Rights Reserved  
-Unless otherwise noted, all **images, videos, audio, banners, logos, the name/brand “ConectaRV”, and final didactic content** are © 2025 **Mônica de Souza Oliveira do Nascimento** — **All Rights Reserved**.  
-For any public use or commercial redistribution, please request authorization.
+**Assets (mídias & marca):** **Todos os Direitos Reservados**  
+Salvo indicação em contrário, todas as **imagens, vídeos, áudios, banners, logotipos,
+a marca/nome “ConectaRV” e conteúdos didáticos finais** são © 2025 **Mônica de Souza
+Oliveira do Nascimento — Todos os Direitos Reservados**. Para uso público ou
+redistribuição comercial, solicite autorização.
+
 
 
 > “Projeto ConectaVR — Projeto Interdisciplinar em Realidade Virtual • Escola Estadual Luiz Gonzaga de Camargo Fleury – URE Sorocaba – SEDUC-SP.”
